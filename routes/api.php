@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\PlanController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -17,3 +18,14 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+// Admin routes — require authentication + admin role
+Route::prefix('admin')
+    ->middleware(['auth:sanctum', 'admin'])
+    ->name('admin.')
+    ->group(function () {
+        // Plans CRUD
+        Route::apiResource('plans', PlanController::class);
+        Route::patch('plans/{plan}/toggle-status', [PlanController::class, 'toggleStatus'])
+            ->name('plans.toggle-status');
+    });
