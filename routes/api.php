@@ -19,6 +19,9 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
+Route::post('/webhooks/payments', [\App\Http\Controllers\Api\WebhookController::class, 'handle'])
+    ->name('webhooks.payments');
+
 // Admin routes — require authentication + admin role
 Route::prefix('admin')
     ->middleware(['auth:sanctum', 'admin'])
