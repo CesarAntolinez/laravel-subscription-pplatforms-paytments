@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\DiscountController;
@@ -22,9 +23,22 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-// -------------------------------------------------------------------
-// Sprint 4 — Discounts, Checkout, Admin Dashboard, Reports
-// -------------------------------------------------------------------
+Route::post('/webhooks/payments', [\App\Http\Controllers\Api\WebhookController::class, 'handle'])
+    ->name('webhooks.payments');
+
+// Admin routes — require authentication + admin role
+Route::prefix('admin')
+    ->middleware(['auth:sanctum', 'admin'])
+    ->name('admin.')
+    ->group(function () {
+        // Plans CRUD
+        Route::apiResource('plans', PlanController::class);
+        Route::patch('plans/{plan}/toggle-status', [PlanController::class, 'toggleStatus'])
+            ->name('plans.toggle-status');
+
+        // HU-F1: Operational dashboard
+        Route::get('dashboard', [AdminDashboardController::class, 'index'])->name('dashboard');
+    });
 
 // HU-E1: Discount CRUD + validation
 Route::apiResource('discounts', DiscountController::class);
@@ -34,11 +48,6 @@ Route::post('discounts/validate', [DiscountController::class, 'validateCode']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('checkout/preview', [CheckoutController::class, 'preview']);
     Route::post('checkout/confirm', [CheckoutController::class, 'confirm']);
-});
-
-// HU-F1, HU-F2: Admin dashboard + reports
-Route::prefix('admin')->group(function () {
-    Route::get('dashboard', [AdminDashboardController::class, 'index']);
 });
 
 // HU-E3, HU-F2: Operational reports

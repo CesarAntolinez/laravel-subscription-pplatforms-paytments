@@ -9,17 +9,15 @@ class PlanFactory extends Factory
     public function definition(): array
     {
         return [
-            'name'           => $this->faker->unique()->words(3, true),
-            'description'    => $this->faker->sentence(),
-            'level'          => $this->faker->randomElement(['basic', 'standard', 'premium']),
-            'price'          => $this->faker->randomFloat(2, 5, 500),
-            'currency'       => 'MXN',
-            'iva_porcentaje' => 16,
-            'modalidad_iva'  => 'excluded',
-            'billing_cycles' => ['monthly'],
-            'trial_days'     => 0,
-            'auto_renew'     => true,
-            'status'         => 'active',
+            'name'              => $this->faker->unique()->words(3, true),
+            'description'       => $this->faker->sentence(),
+            'status'            => 'active',
+            'trial_days'        => 0,
+            'auto_renew'        => true,
+            'iva_percentage'    => 16,
+            'iva_modality'      => 'excluded',
+            'currency'          => 'MXN',
+            'decimal_precision' => 2,
         ];
     }
 }

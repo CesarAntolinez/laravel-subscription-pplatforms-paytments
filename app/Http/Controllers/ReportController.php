@@ -29,8 +29,12 @@ class ReportController extends Controller
         $from = $request->filled('from') ? $request->date('from') : now()->startOfMonth();
         $to   = $request->filled('to')   ? $request->date('to')->endOfDay() : now()->endOfDay();
 
-        $query = DiscountUsage::with(['discount:id,code,name,type,value', 'user:id,name,email', 'plan:id,name', 'subscription:id,status'])
-            ->whereBetween('applied_at', [$from, $to]);
+        $query = DiscountUsage::with([
+            'discount:id,code,name,type,value',
+            'user:id,name,email',
+            'plan:id,name',
+            'subscription:id,status',
+        ])->whereBetween('applied_at', [$from, $to]);
 
         if ($request->filled('discount_id')) {
             $query->where('discount_id', $request->discount_id);
@@ -42,9 +46,17 @@ class ReportController extends Controller
 
         $usages = $query->orderByDesc('applied_at')->paginate(50);
 
+        $summaryQuery = DiscountUsage::whereBetween('applied_at', [$from, $to]);
+        if ($request->filled('discount_id')) {
+            $summaryQuery->where('discount_id', $request->discount_id);
+        }
+        if ($request->filled('code')) {
+            $summaryQuery->whereHas('discount', fn ($q) => $q->where('code', $request->code));
+        }
+
         $summary = [
-            'total_usages'     => $query->toBase()->count(),
-            'total_discounted' => $query->toBase()->sum('amount_discounted'),
+            'total_usages'     => $summaryQuery->count(),
+            'total_discounted' => (float) $summaryQuery->sum('amount_discounted'),
         ];
 
         return response()->json([
@@ -67,15 +79,17 @@ class ReportController extends Controller
         $from = $request->filled('from') ? $request->date('from') : now()->startOfMonth();
         $to   = $request->filled('to')   ? $request->date('to')->endOfDay() : now()->endOfDay();
 
-        $payments = Payment::with(['subscription:id,status,plan_id', 'user:id,name,email'])
+        $payments = Payment::with(['subscription:id,status,plan_id'])
             ->where('status', 'failed')
             ->whereBetween('created_at', [$from, $to])
             ->orderByDesc('created_at')
             ->paginate(50);
 
         $summary = [
-            'total_failed'  => Payment::where('status', 'failed')->whereBetween('created_at', [$from, $to])->count(),
-            'total_amount'  => Payment::where('status', 'failed')->whereBetween('created_at', [$from, $to])->sum('total'),
+            'total_failed' => Payment::where('status', 'failed')
+                ->whereBetween('created_at', [$from, $to])->count(),
+            'total_amount' => Payment::where('status', 'failed')
+                ->whereBetween('created_at', [$from, $to])->sum('total'),
         ];
 
         return response()->json([

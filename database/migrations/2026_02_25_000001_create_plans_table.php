@@ -11,18 +11,15 @@ return new class extends Migration
         Schema::create('plans', function (Blueprint $table) {
             $table->id();
             $table->string('name')->unique();
-            $table->string('description')->nullable();
-            $table->string('level')->default('basic'); // basic, standard, premium
-            $table->decimal('price', 10, 2);
-            $table->string('currency', 3)->default('MXN');
-            $table->decimal('iva_porcentaje', 5, 2)->default(0);
-            $table->string('modalidad_iva')->default('excluded'); // included, excluded
-            $table->json('billing_cycles')->nullable(); // ["monthly","quarterly","annual"]
+            $table->text('description')->nullable();
+            $table->string('status')->default('active'); // active, inactive
             $table->unsignedInteger('trial_days')->default(0);
             $table->boolean('auto_renew')->default(true);
-            $table->string('status')->default('active'); // active, inactive
+            $table->decimal('iva_percentage', 5, 2)->default(0);
+            $table->string('iva_modality')->default('excluded'); // included, excluded
+            $table->string('currency', 3)->default('MXN');
+            $table->unsignedTinyInteger('decimal_precision')->default(2);
             $table->timestamps();
-            $table->softDeletes();
         });
     }
 

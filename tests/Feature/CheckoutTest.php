@@ -25,18 +25,23 @@ class CheckoutTest extends TestCase
     private function makePlan(array $overrides = []): Plan
     {
         return Plan::factory()->create(array_merge([
-            'price'        => 100.00,
-            'iva_porcentaje' => 16,
-            'modalidad_iva' => 'excluded',
-            'status'        => 'active',
-            'billing_cycles' => ['monthly'],
+            'iva_percentage' => 16,
+            'iva_modality'   => 'excluded',
+            'status'         => 'active',
         ], $overrides));
+    }
+
+    private function makePlanWithCycle(array $planOverrides = []): Plan
+    {
+        $plan = $this->makePlan($planOverrides);
+        $plan->billingCycles()->create(['cycle' => 'monthly', 'price' => 100.00, 'enabled' => true]);
+        return $plan;
     }
 
     public function test_preview_returns_correct_totals_without_discount(): void
     {
         [$user, $token] = $this->makeUserWithToken();
-        $plan = $this->makePlan();
+        $plan = $this->makePlanWithCycle();
 
         $this->withToken($token)
             ->postJson('/api/checkout/preview', [
@@ -56,7 +61,7 @@ class CheckoutTest extends TestCase
     public function test_preview_applies_percentage_discount(): void
     {
         [$user, $token] = $this->makeUserWithToken();
-        $plan     = $this->makePlan();
+        $plan     = $this->makePlanWithCycle();
         Discount::factory()->create(['code' => 'SAVE10', 'type' => 'percentage', 'value' => 10, 'status' => 'active']);
 
         $this->withToken($token)
@@ -77,7 +82,7 @@ class CheckoutTest extends TestCase
     public function test_preview_applies_fixed_discount(): void
     {
         [$user, $token] = $this->makeUserWithToken();
-        $plan     = $this->makePlan();
+        $plan     = $this->makePlanWithCycle();
         Discount::factory()->create(['code' => 'FLAT20', 'type' => 'fixed', 'value' => 20, 'status' => 'active']);
 
         $response = $this->withToken($token)
@@ -95,7 +100,7 @@ class CheckoutTest extends TestCase
     public function test_confirm_creates_subscription_and_payment(): void
     {
         [$user, $token] = $this->makeUserWithToken();
-        $plan = $this->makePlan();
+        $plan = $this->makePlanWithCycle();
 
         $response = $this->withToken($token)
             ->postJson('/api/checkout/confirm', [
@@ -105,13 +110,13 @@ class CheckoutTest extends TestCase
             ->assertStatus(201);
 
         $this->assertDatabaseHas('subscriptions', ['user_id' => $user->id, 'plan_id' => $plan->id]);
-        $this->assertDatabaseHas('payments', ['user_id' => $user->id, 'status' => 'approved']);
+        $this->assertDatabaseHas('payments', ['subscription_id' => $response->json('subscription.id'), 'status' => 'paid']);
     }
 
     public function test_confirm_records_discount_usage(): void
     {
         [$user, $token] = $this->makeUserWithToken();
-        $plan     = $this->makePlan();
+        $plan     = $this->makePlanWithCycle();
         $discount = Discount::factory()->create(['code' => 'WELCOME', 'type' => 'percentage', 'value' => 5, 'status' => 'active']);
 
         $this->withToken($token)
@@ -129,7 +134,7 @@ class CheckoutTest extends TestCase
     public function test_confirm_rejects_invalid_discount(): void
     {
         [$user, $token] = $this->makeUserWithToken();
-        $plan = $this->makePlan();
+        $plan = $this->makePlanWithCycle();
         Discount::factory()->create(['code' => 'EXPIRED', 'status' => 'active', 'valid_until' => now()->subDay()]);
 
         $this->withToken($token)
@@ -143,7 +148,7 @@ class CheckoutTest extends TestCase
 
     public function test_confirm_requires_authentication(): void
     {
-        $plan = $this->makePlan();
+        $plan = $this->makePlanWithCycle();
 
         $this->postJson('/api/checkout/confirm', [
             'plan_id'       => $plan->id,
@@ -154,7 +159,8 @@ class CheckoutTest extends TestCase
     public function test_iva_included_calculation(): void
     {
         [$user, $token] = $this->makeUserWithToken();
-        $plan = $this->makePlan(['modalidad_iva' => 'included', 'price' => 116.0]);
+        $plan = $this->makePlan(['iva_modality' => 'included']);
+        $plan->billingCycles()->create(['cycle' => 'monthly', 'price' => 116.0, 'enabled' => true]);
 
         $response = $this->withToken($token)
             ->postJson('/api/checkout/preview', [

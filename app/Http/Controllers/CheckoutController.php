@@ -7,6 +7,7 @@ use App\Models\DiscountUsage;
 use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\Subscription;
+use App\Services\TaxCalculationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -16,6 +17,8 @@ use Illuminate\Support\Str;
  */
 class CheckoutController extends Controller
 {
+    public function __construct(private readonly TaxCalculationService $taxService) {}
+
     /**
      * Preview checkout total for a plan, optionally with a discount code.
      * Returns subtotal, IVA breakdown and total.
@@ -29,18 +32,26 @@ class CheckoutController extends Controller
         ]);
 
         $plan = Plan::findOrFail($validated['plan_id']);
+        $cyclePrice = $this->cyclePrice($plan, $validated['billing_cycle']);
 
-        [$subtotal, $ivaAmount, $total, $discountAmount, $discount] =
-            $this->calculateAmounts($plan, $validated['discount_code'] ?? null, $request->user());
+        [$discountAmount, $discount] = $this->resolveDiscountAmount($validated['discount_code'] ?? null, $cyclePrice, $plan->id);
+
+        $priceAfterDiscount = max(0, $cyclePrice - $discountAmount);
+        $tax = $this->taxService->calculate(
+            $priceAfterDiscount,
+            (float) $plan->iva_percentage,
+            $plan->iva_modality,
+            (int) $plan->decimal_precision
+        );
 
         return response()->json([
             'plan_id'          => $plan->id,
             'billing_cycle'    => $validated['billing_cycle'],
-            'subtotal'         => $subtotal,
-            'iva_percentage'   => (float) $plan->iva_porcentaje,
-            'iva_amount'       => $ivaAmount,
+            'subtotal'         => $tax['subtotal'],
+            'iva_percentage'   => (float) $plan->iva_percentage,
+            'iva_amount'       => $tax['iva_amount'],
             'discount_amount'  => $discountAmount,
-            'total'            => $total,
+            'total'            => $tax['total'],
             'discount_applied' => $discount ? $discount->only(['id', 'code', 'name', 'type', 'value']) : null,
         ]);
     }
@@ -64,71 +75,88 @@ class CheckoutController extends Controller
         // Validate discount if provided
         $discount = null;
         if (!empty($validated['discount_code'])) {
-            $discount = $this->resolveDiscount($validated['discount_code'], $plan->id);
-            if (is_array($discount)) {
-                // error response
-                return response()->json($discount, 422);
+            $result = $this->resolveDiscount($validated['discount_code'], $plan->id);
+            if (is_array($result)) {
+                return response()->json($result, 422);
             }
+            $discount = $result;
         }
 
-        [$subtotal, $ivaAmount, $total, $discountAmount] =
-            $this->calculateAmounts($plan, $validated['discount_code'] ?? null, $user);
+        $cyclePrice = $this->cyclePrice($plan, $validated['billing_cycle']);
+        $discountAmount = $discount ? $discount->calculateDiscount($cyclePrice) : 0.0;
+        $priceAfterDiscount = max(0, $cyclePrice - $discountAmount);
+
+        $tax = $this->taxService->calculate(
+            $priceAfterDiscount,
+            (float) $plan->iva_percentage,
+            $plan->iva_modality,
+            (int) $plan->decimal_precision
+        );
 
         // Create subscription
         $subscription = Subscription::create([
-            'user_id'       => $user->id,
-            'plan_id'       => $plan->id,
-            'status'        => 'active',
-            'billing_cycle' => $validated['billing_cycle'],
-            'starts_at'     => now(),
+            'user_id'         => $user->id,
+            'plan_id'         => $plan->id,
+            'status'          => 'active',
+            'billing_cycle'   => $validated['billing_cycle'],
+            'starts_at'       => now(),
             'next_billing_at' => $this->nextBillingDate($validated['billing_cycle']),
-            'discount_code' => $discount ? $discount->code : null,
+            'discount_code'   => $discount ? $discount->code : null,
         ]);
 
-        // Create payment record
+        // Create payment record using main's Payment schema
         $payment = Payment::create([
-            'subscription_id'      => $subscription->id,
-            'user_id'              => $user->id,
-            'provider'             => $validated['provider'] ?? 'stripe',
-            'currency'             => $plan->currency,
-            'subtotal'             => $subtotal,
-            'iva_percentage'       => (float) $plan->iva_porcentaje,
-            'iva_amount'           => $ivaAmount,
-            'total'                => $total,
-            'modalidad_iva'        => $plan->modalidad_iva,
-            'status'               => 'approved',
-            'idempotency_key'      => (string) Str::uuid(),
-            'attempt_count'        => 1,
-            'charged_at'           => now(),
+            'subscription_id'        => $subscription->id,
+            'provider'               => $validated['provider'] ?? 'stripe',
+            'currency'               => $plan->currency,
+            'subtotal'               => $tax['subtotal'],
+            'iva_percentage_applied' => (float) $plan->iva_percentage,
+            'iva_amount'             => $tax['iva_amount'],
+            'total'                  => $tax['total'],
+            'iva_modality'           => $plan->iva_modality,
+            'base_imponible'         => $tax['base_imponible'],
+            'idempotency_key'        => (string) Str::uuid(),
+            'billed_at'              => now(),
+            'status'                 => 'paid',
         ]);
 
         // Record discount usage (RF-DES-005)
         if ($discount) {
             DiscountUsage::create([
-                'discount_id'      => $discount->id,
-                'user_id'          => $user->id,
-                'plan_id'          => $plan->id,
-                'subscription_id'  => $subscription->id,
-                'payment_id'       => $payment->id,
+                'discount_id'       => $discount->id,
+                'user_id'           => $user->id,
+                'plan_id'           => $plan->id,
+                'subscription_id'   => $subscription->id,
+                'payment_id'        => $payment->id,
                 'amount_discounted' => $discountAmount,
-                'applied_at'       => now(),
+                'applied_at'        => now(),
             ]);
 
-            // Increment usage counter
             $discount->increment('used_count');
         }
 
         return response()->json([
-            'subscription' => $subscription->load('plan'),
-            'payment'      => $payment,
+            'subscription'   => $subscription->load('plan'),
+            'payment'        => $payment,
             'discount_usage' => $discount ? [
-                'code'             => $discount->code,
+                'code'              => $discount->code,
                 'amount_discounted' => $discountAmount,
             ] : null,
         ], 201);
     }
 
     // -----------------------------------------------------------------
+
+    private function cyclePrice(Plan $plan, string $cycle): float
+    {
+        // Use the billing cycle price if available, otherwise fall back to plan base price
+        $billingCycle = $plan->billingCycles()->where('cycle', $cycle)->first();
+        if ($billingCycle && isset($billingCycle->price)) {
+            return (float) $billingCycle->price;
+        }
+        // Fallback: use plan price if it exists (for simpler schemas)
+        return isset($plan->price) ? (float) $plan->price : 0.0;
+    }
 
     private function resolveDiscount(string $code, int $planId): Discount|array
     {
@@ -147,37 +175,19 @@ class CheckoutController extends Controller
         return $discount;
     }
 
-    private function calculateAmounts(Plan $plan, ?string $code, $user): array
+    private function resolveDiscountAmount(?string $code, float $price, int $planId): array
     {
-        $basePrice = (float) $plan->price;
-
-        $discount = null;
-        $discountAmount = 0.0;
-
-        if ($code) {
-            $d = Discount::where('code', $code)->first();
-            if ($d && $d->isValid()) {
-                $discount = $d;
-                $discountAmount = $d->calculateDiscount($basePrice);
-            }
+        if (!$code) {
+            return [0.0, null];
         }
-
-        $priceAfterDiscount = max(0, $basePrice - $discountAmount);
-
-        // IVA calculation respecting modalidad_iva
-        $ivaRate = (float) $plan->iva_porcentaje / 100;
-        if ($plan->modalidad_iva === 'included') {
-            // Price already includes IVA; extract it
-            $subtotal  = round($priceAfterDiscount / (1 + $ivaRate), 2);
-            $ivaAmount = round($priceAfterDiscount - $subtotal, 2);
-            $total     = $priceAfterDiscount;
-        } else {
-            $subtotal  = $priceAfterDiscount;
-            $ivaAmount = round($priceAfterDiscount * $ivaRate, 2);
-            $total     = round($priceAfterDiscount + $ivaAmount, 2);
+        $discount = Discount::where('code', $code)->first();
+        if (!$discount || !$discount->isValid()) {
+            return [0.0, null];
         }
-
-        return [$subtotal, $ivaAmount, $total, $discountAmount, $discount];
+        if ($discount->restrict_plan_id && $discount->restrict_plan_id != $planId) {
+            return [0.0, null];
+        }
+        return [$discount->calculateDiscount($price), $discount];
     }
 
     private function nextBillingDate(string $cycle): \Carbon\Carbon

@@ -50,3 +50,28 @@ Define el ciclo de vida de suscripciones, cambios de plan, estados, renovaciones
   - iva_prorrateado
   - total_ajuste
   - fecha_efectiva_cambio
+
+## 6. Implementación técnica (Sprint 2)
+
+### Modelos
+
+- `Plan` — configuración de plan con campos `iva_percentage`, `iva_modality`, `trial_days`, `auto_renew`, `currency`.
+- `PlanBillingCycle` — ciclos de facturación habilitados por plan (`monthly`, `quarterly`, `annual`) con precio.
+- `Subscription` — estados: `active`, `trial`, `suspended`, `cancelled`, `expired`. Registra `starts_at`, `next_billing_at`, `trial_ends_at`.
+- `Payment` — desglose `subtotal`, `iva_amount`, `total`, `iva_modality`, `idempotency_key` por transacción.
+
+### Servicios
+
+- `TaxCalculationService` — calcula `subtotal`, `iva_amount` y `total` según modalidad IVA incluido/excluido.
+- `SubscriptionService` — alta de suscripción validando ciclo habilitado; renovación actualizando `next_billing_at` y registrando pago.
+
+### Jobs y cron
+
+- `ProcessSubscriptionRenewalsJob` — procesa suscripciones con `next_billing_at <= now()`. Programado cada hora en el Kernel de consola.
+
+### Migraciones
+
+- `2026_02_25_000001_create_plans_table`
+- `2026_02_25_000002_create_plan_billing_cycles_table`
+- `2026_02_25_000003_create_subscriptions_table`
+- `2026_02_25_000004_create_payments_table`

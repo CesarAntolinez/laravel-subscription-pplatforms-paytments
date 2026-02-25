@@ -40,8 +40,9 @@ class AdminDashboardController extends Controller
             ->whereBetween('cancelled_at', [$from, $to])
             ->count();
 
-        $revenue = Payment::where('status', 'approved')
-            ->whereBetween('charged_at', [$from, $to])
+        // Use main's Payment field names: billed_at, iva_percentage_applied, status=paid/failed
+        $revenue = Payment::where('status', 'paid')
+            ->whereBetween('billed_at', [$from, $to])
             ->selectRaw('SUM(total) as total_revenue, SUM(iva_amount) as total_iva, SUM(subtotal) as total_subtotal')
             ->first();
 
