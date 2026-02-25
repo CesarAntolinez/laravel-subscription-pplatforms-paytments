@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\PlanController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -18,13 +19,16 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-/*
-|--------------------------------------------------------------------------
-| Payment Webhooks
-|--------------------------------------------------------------------------
-| These endpoints receive events from payment providers (Stripe,
-| MercadoPago). CSRF verification is excluded for these routes via
-| the VerifyCsrfToken middleware exception list.
-*/
 Route::post('/webhooks/payments', [\App\Http\Controllers\Api\WebhookController::class, 'handle'])
     ->name('webhooks.payments');
+
+// Admin routes — require authentication + admin role
+Route::prefix('admin')
+    ->middleware(['auth:sanctum', 'admin'])
+    ->name('admin.')
+    ->group(function () {
+        // Plans CRUD
+        Route::apiResource('plans', PlanController::class);
+        Route::patch('plans/{plan}/toggle-status', [PlanController::class, 'toggleStatus'])
+            ->name('plans.toggle-status');
+    });
