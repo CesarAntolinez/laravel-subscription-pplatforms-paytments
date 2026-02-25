@@ -17,3 +17,14 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+/*
+|--------------------------------------------------------------------------
+| Payment Webhooks
+|--------------------------------------------------------------------------
+| These endpoints receive events from payment providers (Stripe,
+| MercadoPago). CSRF verification is excluded for these routes via
+| the VerifyCsrfToken middleware exception list.
+*/
+Route::post('/webhooks/payments', [\App\Http\Controllers\Api\WebhookController::class, 'handle'])
+    ->name('webhooks.payments');
