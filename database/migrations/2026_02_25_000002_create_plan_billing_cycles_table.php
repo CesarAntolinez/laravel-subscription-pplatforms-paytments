@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('plan_id')->constrained('plans')->cascadeOnDelete();
             $table->string('cycle'); // monthly, quarterly, annual
-            $table->decimal('price', 10, 2);
+            $table->decimal('price', 10, 2)->nullable();
             $table->boolean('enabled')->default(true);
             $table->timestamps();
 

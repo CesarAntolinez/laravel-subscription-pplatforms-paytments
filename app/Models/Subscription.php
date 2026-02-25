@@ -27,6 +27,7 @@ class Subscription extends Model
         'trial_ends_at',
         'next_billing_at',
         'cancelled_at',
+        'discount_code',
     ];
 
     protected $casts = [
@@ -60,5 +61,10 @@ class Subscription extends Model
     public function isInTrial(): bool
     {
         return $this->status === self::STATUS_TRIAL;
+    }
+
+    public function discountUsages(): HasMany
+    {
+        return $this->hasMany(\App\Models\DiscountUsage::class);
     }
 }
